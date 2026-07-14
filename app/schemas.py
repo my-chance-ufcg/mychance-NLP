@@ -13,6 +13,8 @@ class JobRequirementSchema(BaseModel):
 
 class JobMatchingSchema(BaseModel):
     competencias: dict[str, JobRequirementSchema]
+    senioridade: int = Field(default=0, ge=0, le=5)
+    idiomas: dict[str, int] = Field(default_factory=dict)
 
 
 class CandidateMatchingSchema(BaseModel):
@@ -20,6 +22,8 @@ class CandidateMatchingSchema(BaseModel):
     competencias: dict[str, int] = Field(default_factory=dict)
     projetos: int = Field(default=0, ge=0)
     anos_experiencia: float = Field(default=0.0, ge=0.0, alias="anos_experiencia")
+    senioridade: int = Field(default=0, ge=0, le=5)
+    idiomas: dict[str, int] = Field(default_factory=dict)
 
     model_config = {"populate_by_name": True}
 

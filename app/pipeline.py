@@ -1,5 +1,5 @@
 from app.matching.cosine_similarity import construir_matriz_scores, rotulo_compatibilidade
-from app.matching.weighted_scoring import Candidato, Vaga, rankear_candidatos
+from app.matching.weighted_scoring import Candidato, Vaga, calcular_fator_senioridade, rankear_candidatos
 from app.schemas import (
     CandidateMatchingSchema,
     JobMatchingSchema,
@@ -18,7 +18,13 @@ def _to_vaga(job: JobMatchingSchema) -> Vaga:
         }
         for skill, cfg in job.competencias.items()
     }
-    return Vaga(id=0, titulo="vaga", competencias=competencias)
+    return Vaga(
+        id=0,
+        titulo="vaga",
+        competencias=competencias,
+        senioridade=job.senioridade,
+        idiomas=dict(job.idiomas),
+    )
 
 
 def _to_candidato(candidate: CandidateMatchingSchema, index: int) -> Candidato:
@@ -28,6 +34,8 @@ def _to_candidato(candidate: CandidateMatchingSchema, index: int) -> Candidato:
         competencias={skill: float(level) for skill, level in candidate.competencias.items()},
         projetos=candidate.projetos,
         anos_experiencia=candidate.anos_experiencia,
+        senioridade=candidate.senioridade,
+        idiomas=dict(candidate.idiomas),
     )
 
 
@@ -78,7 +86,12 @@ def rank_candidates(request: MatchingRankRequest) -> MatchingRankResponse:
     for candidate in request.candidatos:
         filtering = filtering_results[candidate.candidato_id]
         approved = filtering["aprovado_filtragem"]
-        score = cosine_scores.get(candidate.candidato_id, 0.0) if approved else 0.0
+        base_score = cosine_scores.get(candidate.candidato_id, 0.0) if approved else 0.0
+        fator_senioridade = calcular_fator_senioridade(
+            candidate.senioridade,
+            request.vaga.senioridade,
+        )
+        score = base_score * fator_senioridade if approved else 0.0
         ranking.append(
             RankedCandidateResponse(
                 candidato_id=candidate.candidato_id,

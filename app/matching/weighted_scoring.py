@@ -48,7 +48,14 @@ DECAIMENTO_RECENCIA: float = 0.1
    - 0 anos  → fator ≈ 1.00
    - 5 anos  → fator ≈ 0.61
    - 10 anos → fator ≈ 0.37
+   Obs.: anos_experiencia já deve chegar ponderado por recência no payload.
 """
+
+PENALIDADE_POR_DEGRAU_SENIORIDADE: float = 0.15
+"""Redução no fator de senioridade por cada degrau de distância (vaga ↔ candidato)."""
+
+FATOR_SENIORIDADE_MINIMO: float = 0.40
+"""Piso do fator de distância de senioridade."""
 
 
 # ----------------
@@ -79,6 +86,10 @@ class Vaga:
             "docker": {"peso": 3, "obrigatoria": False},
         }
     """
+    senioridade: int = 0
+    """Nível alvo da vaga (0=bolsa/iniciação … 4=especialista)."""
+    idiomas: dict[str, int] = field(default_factory=dict)
+    """Mapa idioma -> nível mínimo (rank). Filtragem principal ocorre no backend."""
 
     def get_config(self, competencia: str) -> ConfigCompetencia:
         """Retorna ConfigCompetencia para uma competência da vaga."""
@@ -105,7 +116,11 @@ class Candidato:
     projetos: int = 0
     """Número de projetos reais vinculados ao perfil."""
     anos_experiencia: float = 0.0
-    """Anos de experiência total. Usado no fator de recência."""
+    """Anos de experiência ponderados por recência."""
+    senioridade: int = 0
+    """Nível atual do candidato (0–4)."""
+    idiomas: dict[str, int] = field(default_factory=dict)
+    """Mapa idioma -> nível (rank)."""
 
 
 # ---------------------------------------------------------------------------
@@ -130,6 +145,20 @@ def calcular_fator_recencia(anos: float) -> float:
         Fator multiplicativo em (0, 1].
     """
     return math.exp(-DECAIMENTO_RECENCIA * max(0.0, anos))
+
+
+def calcular_fator_senioridade(
+    senioridade_candidato: int,
+    senioridade_vaga: int,
+    penalidade_por_degrau: float = PENALIDADE_POR_DEGRAU_SENIORIDADE,
+    fator_minimo: float = FATOR_SENIORIDADE_MINIMO,
+) -> float:
+    """
+    Distância de senioridade: mesmo nível = 1.0; cada degrau reduz o fator.
+    Overqualified e underqualified são tratados simetricamente.
+    """
+    distancia = abs(int(senioridade_candidato) - int(senioridade_vaga))
+    return max(fator_minimo, 1.0 - penalidade_por_degrau * distancia)
 
 
 def _score_maximo_teorico(vaga: Vaga, nivel_maximo: int = NIVEL_MAXIMO) -> float:
@@ -221,6 +250,12 @@ def calcular_score_ponderado(
     # Fator de recência
     fator_recencia = calcular_fator_recencia(candidato.anos_experiencia)
 
+    # Distância de senioridade (novo parâmetro de score)
+    fator_senioridade = calcular_fator_senioridade(
+        candidato.senioridade,
+        vaga.senioridade,
+    )
+
     # Penalização por ausências obrigatórias
     penalizacao = (
         ausencias_obrigatorias * penalizacao_obrigatoria / score_maximo
@@ -230,7 +265,7 @@ def calcular_score_ponderado(
 
     score_final = max(
         0.0,
-        (score_normalizado + bonus_projetos) * fator_recencia - penalizacao,
+        (score_normalizado + bonus_projetos) * fator_recencia * fator_senioridade - penalizacao,
     )
 
     return {
@@ -238,6 +273,7 @@ def calcular_score_ponderado(
         "nome_anonimo": candidato.nome_anonimo,
         "score_base_normalizado": round(score_normalizado, 4),
         "score_final": round(score_final, 4),
+        "fator_senioridade": round(fator_senioridade, 4),
         "ausencias_obrigatorias": ausencias_obrigatorias,
         "aprovado_filtragem": ausencias_obrigatorias == 0,
         "detalhes_por_competencia": detalhes,
