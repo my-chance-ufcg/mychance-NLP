@@ -12,12 +12,13 @@ from app.matching.weighted_scoring import (
     Vaga,
     Candidato,
     ConfigCompetencia,
-    calcular_fator_recencia,
+    calcular_fator_experiencia,
+    calcular_fator_projetos,
+    calcular_fator_senioridade,
     calcular_score_ponderado,
     rankear_candidatos,
-    NIVEL_MAXIMO,
-    DECAIMENTO_RECENCIA,
 )
+from app.matching.parametros import NIVEL_MAXIMO, ParametrosMatching
 
 
 # ---------------------------------------------------------------------------
@@ -58,23 +59,43 @@ def candidato_sem_obrigatorias():
 
 
 # ---------------------------------------------------------------------------
-# calcular_fator_recencia
+# Fatores auxiliares
 # ---------------------------------------------------------------------------
 
-class TestFatorRecencia:
-    def test_zero_anos_retorna_um(self):
-        assert calcular_fator_recencia(0.0) == pytest.approx(1.0)
+class TestFatorExperiencia:
+    def test_zero_anos_retorna_zero(self):
+        assert calcular_fator_experiencia(0.0) == pytest.approx(0.0)
 
     def test_negativo_tratado_como_zero(self):
-        assert calcular_fator_recencia(-5.0) == pytest.approx(1.0)
+        assert calcular_fator_experiencia(-5.0) == pytest.approx(0.0)
 
-    def test_decaimento_exponencial(self):
-        esperado = math.exp(-DECAIMENTO_RECENCIA * 5)
-        assert calcular_fator_recencia(5.0) == pytest.approx(esperado, rel=1e-6)
+    def test_curva_saturante(self):
+        assert calcular_fator_experiencia(3.0, tau=3.0) == pytest.approx(1 - math.exp(-1), rel=1e-6)
 
-    def test_fator_sempre_positivo(self):
-        for anos in [0, 1, 10, 50, 100]:
-            assert calcular_fator_recencia(float(anos)) > 0
+    def test_crescente_e_limitado(self):
+        valores = [calcular_fator_experiencia(float(a)) for a in [0, 1, 5, 10, 50]]
+        assert valores == sorted(valores)
+        assert all(0.0 <= v < 1.0 for v in valores)
+
+
+class TestFatorProjetos:
+    def test_satura_no_teto(self):
+        assert calcular_fator_projetos(10, saturacao=3) == pytest.approx(1.0)
+
+    def test_proporcional_abaixo_do_teto(self):
+        assert calcular_fator_projetos(1, saturacao=4) == pytest.approx(0.25)
+
+
+class TestFatorSenioridade:
+    def test_mesmo_nivel_retorna_um(self):
+        assert calcular_fator_senioridade(2, 2) == pytest.approx(1.0)
+
+    def test_abaixo_penaliza_mais_que_acima(self):
+        assert calcular_fator_senioridade(1, 2) < calcular_fator_senioridade(3, 2)
+
+    def test_respeita_piso(self):
+        p = ParametrosMatching(fator_senioridade_minimo=0.5)
+        assert calcular_fator_senioridade(0, 5, p) == pytest.approx(0.5)
 
 
 # ---------------------------------------------------------------------------
@@ -113,26 +134,64 @@ class TestCalcularScorePonderado:
         assert r["ausencias_obrigatorias"] == 2
         assert r["aprovado_filtragem"] is False
 
-    def test_bonus_projetos_aumenta_score(self, candidato_completo, vaga_basica):
-        sem_projetos = calcular_score_ponderado(candidato_completo, vaga_basica)
-        candidato_completo.projetos = 5
-        com_projetos = calcular_score_ponderado(candidato_completo, vaga_basica)
-        assert com_projetos["score_final"] > sem_projetos["score_final"]
+    def test_cobertura_satura_no_alvo(self, vaga_basica):
+        """Exceder o alvo não aumenta a cobertura."""
+        no_alvo = Candidato(1, "CAND-A", {"python": 3, "sql": 3, "docker": 3, "powerbi": 3})
+        acima = Candidato(2, "CAND-B", {"python": 5, "sql": 5, "docker": 5, "powerbi": 5})
+        assert calcular_score_ponderado(no_alvo, vaga_basica)["score_base_normalizado"] == pytest.approx(1.0)
+        assert calcular_score_ponderado(acima, vaga_basica)["score_base_normalizado"] == pytest.approx(1.0)
 
-    def test_experiencia_alta_reduz_score_via_recencia(self, vaga_basica):
-        junior = Candidato(
-            id=10, nome_anonimo="CAND-JR",
-            competencias={"python": 4, "sql": 4, "docker": 3, "powerbi": 2},
-            projetos=0, anos_experiencia=0.0,
+    def test_score_final_no_intervalo_unitario(self, candidato_completo, vaga_basica):
+        r = calcular_score_ponderado(candidato_completo, vaga_basica)
+        assert 0.0 <= r["score_final"] <= 1.0
+
+    def test_tolerancia_aprova_com_penalidade(self, vaga_basica):
+        c = Candidato(4, "CAND-TOL", {"python": 2, "sql": 3, "docker": 3, "powerbi": 3})
+        estrito = calcular_score_ponderado(c, vaga_basica)
+        tolerante = calcular_score_ponderado(
+            c, vaga_basica, ParametrosMatching(tolerancia_obrigatoria=1, penalidade_por_nivel_faltante=0.2)
         )
-        senior = Candidato(
-            id=11, nome_anonimo="CAND-SR",
-            competencias={"python": 4, "sql": 4, "docker": 3, "powerbi": 2},
-            projetos=0, anos_experiencia=20.0,
-        )
-        r_jr = calcular_score_ponderado(junior, vaga_basica)
-        r_sr = calcular_score_ponderado(senior, vaga_basica)
-        assert r_jr["score_final"] > r_sr["score_final"]
+        assert estrito["aprovado_filtragem"] is False
+        assert tolerante["aprovado_filtragem"] is True
+        assert tolerante["obrigatorias_toleradas"] == 1
+        assert tolerante["fator_gate"] == pytest.approx(0.8)
+
+    def test_deficit_acima_da_tolerancia_elimina(self, vaga_basica):
+        c = Candidato(5, "CAND-ELIM", {"python": 1, "sql": 3})
+        r = calcular_score_ponderado(c, vaga_basica, ParametrosMatching(tolerancia_obrigatoria=1))
+        assert r["aprovado_filtragem"] is False
+        assert r["score_final"] == pytest.approx(0.0)
+
+    def test_credito_parcial_por_competencia_relacionada(self):
+        vaga = Vaga(1, "Backend", {"postgresql": {"peso": 4, "obrigatoria": True, "nivel_min": 2}})
+        c = Candidato(6, "CAND-MYSQL", {"MySQL": 4})
+        r = calcular_score_ponderado(c, vaga)
+        detalhe = r["detalhes_por_competencia"]["postgresql"]
+        assert r["aprovado_filtragem"] is True
+        assert detalhe["credito_via"] == "mysql"
+        assert detalhe["nivel_candidato"] == pytest.approx(2.8)
+
+    def test_sinonimos_colidindo_na_vaga_mantem_requisito_mais_exigente(self):
+        vaga = Vaga(1, "Backend", {
+            "postgres":   {"peso": 5, "obrigatoria": True, "nivel_min": 4},
+            "postgresql": {"peso": 1},
+        })
+        r = calcular_score_ponderado(Candidato(8, "CAND-PG", {"postgresql": 1}), vaga)
+        assert r["aprovado_filtragem"] is False
+        assert r["detalhes_por_competencia"]["postgresql"]["peso"] == 5
+
+    def test_nivel_alvo_nunca_abaixo_do_minimo(self):
+        vaga = Vaga(1, "Backend", {"python": {"peso": 5, "obrigatoria": True, "nivel_min": 4, "nivel_alvo": 2}})
+        r = calcular_score_ponderado(Candidato(9, "CAND-PY", {"python": 2}), vaga)
+        assert r["detalhes_por_competencia"]["python"]["nivel_alvo"] == 4
+        assert r["score_base_normalizado"] == pytest.approx(0.5)
+
+    def test_sinonimos_na_vaga_e_no_candidato(self):
+        vaga = Vaga(1, "Backend", {"Postgres": {"peso": 4, "obrigatoria": True, "nivel_min": 3}})
+        c = Candidato(7, "CAND-PG", {"postgresql": 4})
+        r = calcular_score_ponderado(c, vaga)
+        assert r["aprovado_filtragem"] is True
+        assert "postgresql" in r["detalhes_por_competencia"]
 
     def test_score_final_nunca_negativo(self, vaga_basica):
         candidato = Candidato(
@@ -156,7 +215,8 @@ class TestCalcularScorePonderado:
             projetos=0, anos_experiencia=0.0,
         )
         r = calcular_score_ponderado(c, vaga_basica)
-        score_base_esperado = (5*4 + 4*5 + 3*2 + 2*0) / ((5+4+3+2)*5)
+        # alvo = max(nivel_min, 3): python 3, sql 3, docker 3, powerbi 3
+        score_base_esperado = (5*1 + 4*1 + 3*(2/3) + 2*0) / (5+4+3+2)
         assert r["score_base_normalizado"] == pytest.approx(score_base_esperado, rel=1e-4)
 
 

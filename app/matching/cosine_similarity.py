@@ -158,6 +158,28 @@ def cosine_similarity(
     return float(np.clip(num / den, 0.0, 1.0))
 
 
+def calcular_aderencia(
+    alvos: dict[str, float],
+    niveis: dict[str, float],
+    pesos: dict[str, float],
+) -> float:
+    """
+    Similaridade ponderada entre o perfil-alvo da vaga e o do candidato.
+
+    Diferente da comparação sobre o vocabulário global:
+    - o espaço é restrito às competências da vaga (competências extras não penalizam);
+    - o vetor da vaga usa o nível alvo, e não 1;
+    - o nível do candidato é truncado no alvo (exceder o alvo não distorce a direção).
+
+    Mede o equilíbrio do perfil em relação à distribuição de pesos da vaga;
+    a suficiência dos níveis é medida pela cobertura (weighted_scoring).
+    """
+    vocabulario = list(alvos)
+    vetor_vaga = vetorizar_perfil(alvos, vocabulario)
+    vetor_candidato = np.minimum(vetorizar_perfil(niveis, vocabulario), vetor_vaga)
+    return cosine_similarity(vetor_vaga, vetor_candidato, vetorizar_perfil(pesos, vocabulario))
+
+
 def angulo_graus(similaridade: float) -> float:
     """Converte similaridade cossenoidal para ângulo em graus."""
     return math.degrees(math.acos(np.clip(similaridade, 0.0, 1.0)))

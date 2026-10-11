@@ -1,6 +1,6 @@
 # My Chance — NLP / Matching
 
-Serviço de ranqueamento de candidatos para vagas. Executa filtragem por competências obrigatórias e ranking por similaridade de cosseno. Chamado pelo **backend-services** via HTTP.
+Serviço de ranqueamento de candidatos para vagas. Executa filtragem por competências obrigatórias (com tolerância configurável), cobertura ponderada dos requisitos, aderência por similaridade de cosseno, experiência, projetos e senioridade, e devolve um ranking explicável. Chamado pelo **backend-services** via HTTP.
 
 ## Requisitos
 
@@ -45,6 +45,17 @@ app/
 ├── pipeline.py
 ├── schemas.py
 └── matching/
-    ├── weighted_scoring.py
-    └── cosine_similarity.py
+    ├── parametros.py         # parâmetros ajustáveis (sobrescritos por `parametros` na requisição)
+    ├── taxonomia.py          # sinônimos e crédito parcial entre competências relacionadas
+    ├── weighted_scoring.py   # etapa 1: filtro de obrigatórias + cobertura ponderada
+    ├── cosine_similarity.py  # etapa 2: aderência (cosseno no espaço da vaga)
+    └── ranking.py            # combinação dos componentes, desempate e explicação
 ```
+
+## Score
+
+```
+score = gate × fator_senioridade × (0.55·cobertura + 0.20·aderência + 0.15·experiência + 0.10·projetos)
+```
+
+Campos opcionais novos no contrato: `vaga.competencias.*.nivel_alvo`, `parametros` (request) e `componentes`/`explicacao` (response). `vocabulario` passou a ser opcional e é ignorado.

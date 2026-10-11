@@ -14,6 +14,7 @@ from app.matching.cosine_similarity import (
     vetorizar_perfil,
     cosine_similarity,
     angulo_graus,
+    calcular_aderencia,
     rotulo_compatibilidade,
     calcular_similaridade_candidato,
     construir_matriz_scores,
@@ -137,6 +138,33 @@ class TestCosineSimilarity:
         b = np.array([1.0, 1.0, 0.0, 1.0])
         esperado = 2.0 / (math.sqrt(3) * math.sqrt(3))
         assert cosine_similarity(a, b) == pytest.approx(esperado, rel=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# calcular_aderencia
+# ---------------------------------------------------------------------------
+
+class TestCalcularAderencia:
+    alvos = {"python": 4, "sql": 3, "docker": 3}
+    pesos = {"python": 5, "sql": 4, "docker": 3}
+
+    def test_perfil_no_alvo_retorna_um(self):
+        assert calcular_aderencia(self.alvos, dict(self.alvos), self.pesos) == pytest.approx(1.0)
+
+    def test_exceder_alvo_nao_altera(self):
+        acima = {"python": 5, "sql": 5, "docker": 5}
+        assert calcular_aderencia(self.alvos, acima, self.pesos) == pytest.approx(1.0)
+
+    def test_competencias_fora_da_vaga_ignoradas(self):
+        base = {"python": 4, "sql": 2, "docker": 1}
+        com_extra = {**base, "java": 5, "react": 5}
+        assert calcular_aderencia(self.alvos, com_extra, self.pesos) == pytest.approx(
+            calcular_aderencia(self.alvos, base, self.pesos)
+        )
+
+    def test_perfil_desequilibrado_reduz(self):
+        desequilibrado = {"python": 0, "sql": 3, "docker": 3}
+        assert calcular_aderencia(self.alvos, desequilibrado, self.pesos) < 0.9
 
 
 # ---------------------------------------------------------------------------
