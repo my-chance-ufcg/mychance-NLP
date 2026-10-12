@@ -70,6 +70,8 @@ class Vaga:
     """Nível alvo da vaga (0=bolsa/iniciação … 4=especialista)."""
     idiomas: dict[str, int] = field(default_factory=dict)
     """Mapa idioma -> nível mínimo (rank). Filtragem principal ocorre no backend."""
+    competencias_comportamentais: list[str] = field(default_factory=list)
+    """Até 3 habilidades pedidas pela vaga. Coincidência dá bônus e nunca elimina."""
 
     def get_config(self, competencia: str) -> ConfigCompetencia:
         """Retorna ConfigCompetencia para uma competência da vaga."""
@@ -126,6 +128,8 @@ class Candidato:
     """Nível atual do candidato (0–4)."""
     idiomas: dict[str, int] = field(default_factory=dict)
     """Mapa idioma -> nível (rank)."""
+    competencias_comportamentais: list[str] = field(default_factory=list)
+    """Até 3 habilidades declaradas no currículo."""
 
 
 # ---------------------------------------------------------------------------

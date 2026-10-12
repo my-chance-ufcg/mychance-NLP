@@ -27,6 +27,7 @@ def _to_vaga(job: JobMatchingSchema) -> Vaga:
         competencias=competencias,
         senioridade=job.senioridade,
         idiomas=dict(job.idiomas),
+        competencias_comportamentais=list(job.competencias_comportamentais),
     )
 
 
@@ -39,6 +40,7 @@ def _to_candidato(candidate: CandidateMatchingSchema, index: int) -> Candidato:
         anos_experiencia=candidate.anos_experiencia,
         senioridade=candidate.senioridade,
         idiomas=dict(candidate.idiomas),
+        competencias_comportamentais=list(candidate.competencias_comportamentais),
     )
 
 

@@ -91,6 +91,36 @@ class TestCombinacao:
         r = avaliar_candidato(c, vaga)
         assert r.aprovado is True
         assert any("via mysql" in motivo for motivo in r.explicacao)
+        assert any("competências obrigatórias" in motivo for motivo in r.explicacao)
+
+    def test_comportamentais_coincidentes_sobem_o_score_sem_eliminar(self, candidato, vaga):
+        base = avaliar_candidato(candidato, vaga).score
+        vaga_com = replace(
+            vaga,
+            competencias_comportamentais=["Comunicação", "Empatia", "Autonomia"],
+        )
+        parcial = replace(candidato, competencias_comportamentais=["Comunicação"])
+        total = replace(
+            candidato,
+            competencias_comportamentais=["Comunicação", "Empatia", "Autonomia"],
+        )
+        eliminado = Candidato(
+            1,
+            "CAND-ELIM",
+            {"python": 1},
+            competencias_comportamentais=["Comunicação", "Empatia", "Autonomia"],
+        )
+
+        score_parcial = avaliar_candidato(parcial, vaga_com).score
+        score_total = avaliar_candidato(total, vaga_com).score
+        assert score_parcial > base
+        assert score_total > score_parcial
+        assert avaliar_candidato(eliminado, vaga_com).aprovado is False
+        assert avaliar_candidato(eliminado, vaga_com).score == 0.0
+        assert any(
+            "3 de 3" in motivo
+            for motivo in avaliar_candidato(total, vaga_com).explicacao
+        )
 
     def test_componentes_expostos(self, candidato, vaga):
         r = avaliar_candidato(candidato, vaga)

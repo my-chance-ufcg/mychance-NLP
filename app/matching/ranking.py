@@ -37,8 +37,50 @@ class ResultadoMatching:
     explicacao: list[str] = field(default_factory=list)
 
 
+def _percentual_atendido(grupo: list[dict], campo: str = "nivel_min") -> int | None:
+    if not grupo:
+        return None
+    atendidas = sum(1 for item in grupo if item["nivel_candidato"] >= item[campo])
+    return round(100 * atendidas / len(grupo))
+
+
+def _resumo_cobertura(detalhes: dict[str, dict]) -> str | None:
+    obrigatorias = [item for item in detalhes.values() if item["obrigatoria"]]
+    desejaveis = [item for item in detalhes.values() if not item["obrigatoria"]]
+    partes: list[str] = []
+    cobertura_obrigatorias = _percentual_atendido(obrigatorias)
+    if cobertura_obrigatorias is not None:
+        partes.append(f"{cobertura_obrigatorias}% das competências obrigatórias")
+    cobertura_desejaveis = _percentual_atendido(desejaveis)
+    if cobertura_desejaveis is not None:
+        partes.append(f"{cobertura_desejaveis}% das desejáveis")
+    if not partes:
+        return None
+    return "Candidato possui " + " e ".join(partes) + "."
+
+
+BONUS_COMPORTAMENTAL = 0.06
+
+
+def _bonus_comportamental(candidato: Candidato, vaga: Vaga) -> tuple[float, str | None]:
+    pedidas = {skill.strip().casefold() for skill in vaga.competencias_comportamentais if skill.strip()}
+    if not pedidas:
+        return 0.0, None
+    declaradas = {skill.strip().casefold() for skill in candidato.competencias_comportamentais if skill.strip()}
+    coincidencias = len(pedidas & declaradas)
+    bonus = BONUS_COMPORTAMENTAL * coincidencias / len(pedidas)
+    texto = (
+        f"Competências comportamentais: {coincidencias} de {len(pedidas)} "
+        "coincidem com a vaga."
+    )
+    return bonus, texto
+
+
 def _explicar(detalhes: dict[str, dict]) -> list[str]:
     motivos: list[str] = []
+    resumo = _resumo_cobertura(detalhes)
+    if resumo:
+        motivos.append(resumo)
     for skill, d in detalhes.items():
         nivel = d["nivel_candidato"]
         if d["lacuna_critica"]:
@@ -93,6 +135,11 @@ def avaliar_candidato(
     componentes["gate"] = filtragem["fator_gate"]
     componentes["senioridade"] = calcular_fator_senioridade(candidato.senioridade, vaga.senioridade, parametros)
     score = base * componentes["gate"] * componentes["senioridade"]
+    bonus, texto_comportamental = _bonus_comportamental(candidato, vaga)
+    if texto_comportamental:
+        componentes["comportamentais"] = round(bonus / BONUS_COMPORTAMENTAL, 4)
+        explicacao = [*explicacao, texto_comportamental]
+        score += bonus
 
     return ResultadoMatching(
         nome_anonimo=candidato.nome_anonimo,
